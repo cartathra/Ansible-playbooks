@@ -1,0 +1,145 @@
+---
+- name: Install plex server
+  hosts: plex
+  become: true
+
+  tasks:
+  - name: Set hostname
+    hostname:
+      name: pkg-plex.int.cartathra.se
+
+  - name: Download plex rpm
+    get_url: url='https://plex.tv/downloads/latest/1?channel=16&build=linux-ubuntu-x86_64&distro=redhat&X-Plex-Token=removed' dest='/root/plex.rpm'
+
+  - name: Install plex rpm
+    dnf:
+      name: '/root/plex.rpm'
+      state: present
+      disable_gpg_check: yes
+
+  - name: Open plex ports
+    firewalld:
+      port: "{{ item }}"
+      permanent: yes
+      immediate: yes
+      state: enabled
+    loop:
+      - 5666/tcp
+      - 32400/tcp
+      - 33400/tcp
+      - 32469/tcp
+      - 32410/udp
+      - 32412-32414/udp
+      - 1900/udp
+      - 5353/udp
+
+  - name: Create scripts directory
+    file:
+      path: /root/bin
+      state: directory
+      owner: root
+      group: root
+      mode: '0700'
+
+  - name: Copying newdownloads script
+    copy:
+      src: /root/ansible/files/bin/newdownloads.py
+      dest: /root/bin/newdownloads.py
+      owner: root
+      group: root
+      mode: '0700'
+
+  - name: Copying plexautoupdate script
+    copy:
+      src: /root/ansible/files/bin/plexautoupdate.sh
+      dest: /root/bin/plexautoupdate.sh
+      owner: root
+      group: root
+      mode: '0700'
+
+  - name: Installing other packages
+    dnf:
+      name: "{{ item }}"
+      state: present
+    loop:
+      - python3
+      - python3-libsemanage
+      - glibc-langpack-en
+      - nrpe
+      - nagios-plugins
+      - nfs-utils
+
+  - name: Copying nrpe config
+    copy:
+      src: /root/ansible/files/nrpe/nrpe.cfg
+      dest: /etc/nagios/nrpe.cfg
+      force: yes
+      owner: root
+      group: root
+
+  - name: Setting nrpe restart cronjob
+    cron:
+      name: NRPE
+      job: "sleep 300 && for i in $(lsof -i :5666 | awk '{if(NR>1)print $2}');do kill -9 $i ; done && systemctl restart nrpe"
+      special_time: reboot
+      state: present
+      user: root
+
+  - name: Setting plex auto update cronjob
+    cron:
+      name: "Plex update"
+      minute: "30"
+      job: "/root/bin/plexautoupdate.sh >> /var/log/plexupdate.log"
+      state: present
+      user: root
+
+  - name: Setting plex new dowloads cronjob
+    cron:
+      name: "Plex new downloads"
+      minute: "*/30"
+      job: "/usr/bin/python3 /root/bin/newdownloads.py >> /var/log/newdownloads.log"
+      state: present
+      user: root
+
+  - name: Mounting Primary Media Library
+    mount:
+      fstype: nfs
+      src: <nas-ip>:/volume1/Mediacenter
+      path: /mnt/nas/media
+      state: mounted
+
+  - name: Mounting Secondary Media Library
+    mount:
+      fstype: nfs
+      src: <nas2-ip:/volume1/Mediacenter
+      path: /mnt/nas/media2
+      state: mounted
+
+  - name: Mounting USB1 Media Library
+    mount:
+      fstype: nfs
+      src: <nas-ip>:/share/USB1
+      path: /mnt/nas/usb
+      state: mounted
+
+  - name: Mounting USB2 Media Library
+    mount:
+      fstype: nfs
+      src: <nas-ip>:/share/USB2-2
+      path: /mnt/nas/usb2
+      state: mounted
+
+  - name: Configuring SELinux
+    seboolean:
+      name: httpd_can_network_connect
+      persistent: yes
+      state: yes
+
+  - name: Starting services
+    service:
+      name: "{{ item }}"
+      enabled: yes
+      state: restarted
+    loop:
+      - nrpe
+      - plexmediaserver
