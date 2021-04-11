@@ -1,0 +1,221 @@
+---
+- name: Install Wordpress server
+  hosts: wpress
+  become: true
+
+  tasks:
+  - name: Set hostname
+    hostname:
+      name: wordpress.cartathra.se
+
+  - name: Open Nginx ports
+    firewalld:
+      port: "{{ item }}"
+      permanent: yes
+      immediate: yes
+      state: enabled
+    loop:
+      - 5666/tcp
+      - 80/tcp
+      - 443/tcp
+
+  - name: Create scripts directory
+    file:
+      path: /root/bin
+      state: directory
+      owner: root
+      group: root
+      mode: '0700'
+
+  - name: Install Epel repo
+    dnf:
+      name: epel-release
+      state: present
+
+  - name: Install Remi repo
+    dnf:
+      name: 'https://rpms.remirepo.net/enterprise/remi-release-8.rpm'
+      state: present
+      disable_gpg_check: yes
+
+  - name: Enable Remi php7.4 repo
+    shell:
+      cmd: dnf -y module enable php:remi-7.4
+
+  - name: Installing other packages
+    dnf:
+      name: "{{ item }}"
+      state: present
+    loop:
+      - python3
+      - python3-libsemanage
+      - unzip
+      - tar
+      - bzip2
+      - nginx
+      - php
+      - php-mysqlnd
+      - php-fpm
+      - php-opcache
+      - php-common
+      - php-gd
+      - php-json
+      - php-curl
+      - php-zip
+      - php-xml
+      - php-mbstring
+      - php-bz2
+      - php-intl
+      - php-process
+      - php-dom
+      - php-simplexml
+      - php-ssh2
+      - php-xmlreader
+      - php-curl
+      - php-date
+      - php-exif
+      - php-filter
+      - php-ftp
+      - php-hash
+      - php-iconv
+      - php-libxml
+      - php-pecl-imagick
+      - php-openssl
+      - php-pcre
+      - php-posix
+      - php-sockets
+      - php-spl
+      - php-tokenizer
+      - php-zlib
+      - glibc-langpack-en
+      - nrpe
+      - nagios-plugins
+      - dnf-utils
+      - mariadb
+      - mariadb-server
+
+  - name: Copying nginx config
+    copy:
+      src: /root/ansible/files/wordpress/wordpress.conf
+      dest: /etc/nginx/conf.d/wordpress.conf
+      force: yes
+      owner: root
+      group: root
+      mode: '0644'
+
+  - name: Replace php-fpm user
+    lineinfile:
+      path: /etc/php-fpm.d/www.conf
+      regexp: ^user
+      line: 'user = nginx'
+      owner: root
+      group: root
+      mode: '0644'
+
+  - name: Replace php-fpm group
+    lineinfile:
+      path: /etc/php-fpm.d/www.conf
+      regexp: ^group
+      line: 'group = nginx'
+      owner: root
+      group: root
+      mode: '0644'
+
+  - name: Set upload size in php.ini
+    lineinfile:
+      path: /etc/php.ini
+      regexp: ^upload_max_filesize
+      line: 'upload_max_filesize = 1024M'
+      owner: root
+      group: root
+      mode: '0644'
+
+  - name: Set post size in php.ini
+    lineinfile:
+      path: /etc/php.ini
+      regexp: ^post_max_size
+      line: 'post_max_size = 1024M'
+      owner: root
+      group: root
+      mode: '0644'
+
+  - name: Set memory limit in php.ini
+    lineinfile:
+      path: /etc/php.ini
+      regexp: ^memory_limit
+      line: 'memory_limit = 1024M'
+      owner: root
+      group: root
+      mode: '0644'
+
+  - name: Make nginx group own php libraries
+    file:
+      path: "{{ item }}"
+      group: nginx
+      recurse: yes
+      state: directory
+    loop:
+      - /var/lib/php/opcache
+      - /var/lib/php/session
+      - /var/lib/php/wsdlcache
+
+  - name: Copying server certificate
+    copy:
+      src: /root/ansible/files/server.crt
+      dest: /etc/pki/tls/certs/server.crt
+      force: yes
+      owner: root
+      group: root
+      mode: '0644'
+
+  - name: Copying server key
+    copy:
+      src: /root/ansible/files/server.key
+      dest: /etc/pki/tls/private/server.key
+      force: yes
+      owner: root
+      group: root
+      mode: '0644'
+
+  - name: Download Wordpress archive
+    get_url:
+      url: 'https://wordpress.org/latest.tar.gz'
+      dest: '/root/wordpress.tar.gz'
+
+  - name: Install Wordpress archive
+    unarchive:
+      src: /root/wordpress.tar.gz
+      dest: /var/www/html
+      remote_src: yes
+      owner: nginx
+      group: nginx
+      setype: httpd_sys_rw_content_t
+
+  - name: Copying nrpe config
+    copy:
+      src: /root/ansible/files/nrpe/nrpe.cfg
+      dest: /etc/nagios/nrpe.cfg
+      force: yes
+      owner: root
+      group: root
+
+  - name: Configuring SELinux
+    seboolean:
+      name: "{{ item }}"
+      persistent: yes
+      state: yes
+    loop:
+      - httpd_execmem
+      - httpd_can_network_connect
+
+  - name: Starting services
+    service:
+      name: "{{ item }}"
+      enabled: yes
+      state: restarted
+    loop:
+      - firewalld
+      - nrpe
+      - nginx
+      - php-fpm
+      - mariadb
