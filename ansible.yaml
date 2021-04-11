@@ -1,0 +1,49 @@
+---
+- name: Install ansible server
+  hosts: Ansible
+  become: true
+
+  tasks:
+  - name: Set hostname
+    hostname:
+      name: ansible.cartathra.se
+
+  - name: Installing packages
+    dnf:
+      name: "{{ item }}"
+      state: present
+    loop:
+      - python3
+      - python3-libsemanage
+      - glibc-langpack-en
+      - nrpe
+      - nagios-plugins
+      - vim
+      - epel-release
+      - ansible
+      - vim-ansible
+
+  - name: Copying nrpe config
+    copy:
+      src: /root/ansible/files/nrpe/nrpe.cfg
+      dest: /etc/nagios/nrpe.cfg
+      force: yes
+      owner: root
+      group: root
+
+  - name: Open nrpe ports
+    firewalld:
+      port: "{{ item }}"
+      permanent: yes
+      immediate: yes
+      state: enabled
+    loop:
+      - 5666/tcp
+
+  - name: Starting services
+    service:
+      name: "{{ item }}"
+      enabled: yes
+      state: restarted
+    loop:
+      - nrpe
