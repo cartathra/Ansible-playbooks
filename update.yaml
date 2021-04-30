@@ -1,0 +1,79 @@
+---
+- name: Update server
+  hosts: all
+  become: true
+
+  tasks:
+  - name: Update Ubuntu
+    apt:
+      name: '*'
+      state: latest
+      update_cache: yes
+      only_upgrade: yes
+    register: apt_update_status
+    when: ansible_distribution == 'Ubuntu'
+
+  - name: Remove unneeded packages Ubuntu
+    apt:
+      autoremove: yes
+    when: ansible_distribution == 'Ubuntu'
+
+  - name: Reboot if changed Ubuntu
+    throttle: 1
+    reboot:
+      post_reboot_delay: 60
+    when:
+      - ansible_distribution == 'Ubuntu'
+      - apt_update_status.changed
+
+  - name: Update CentOS 7
+    yum:
+      name: '*'
+      state: latest
+      update_cache: yes
+      update_only: yes
+    register: yum_update_status_7
+    when:
+      - ansible_distribution == "CentOS"
+      - ansible_distribution_major_version == "7"
+
+  - name: Remove unneeded packages CentOS 7
+    yum:
+      autoremove: yes
+    when: 
+      - ansible_distribution == "CentOS"
+      - ansible_distribution_major_version == "7"
+
+  - name: Reboot if changed CentOS 7
+    throttle: 1
+    reboot:
+    when: 
+      - ansible_distribution == "CentOS"
+      - ansible_distribution_major_version == "7"
+      - yum_update_status_7.changed
+
+  - name: Update CentOS 8
+    dnf:
+      name: '*'
+      state: latest
+      update_cache: yes
+      update_only: yes
+    register: yum_update_status_8
+    when: 
+      - ansible_distribution == "CentOS"
+      - ansible_distribution_major_version == "8"
+
+  - name: Remove unneeded packages CentOS 8
+    dnf:
+      autoremove: yes
+    when: 
+      - ansible_distribution == "CentOS"
+      - ansible_distribution_major_version == "8"
+
+  - name: Reboot if changed CentOS 8
+    throttle: 1
+    reboot:
+    when: 
+      - ansible_distribution == "CentOS"
+      - ansible_distribution_major_version == "8"
+      - yum_update_status_8.changed
